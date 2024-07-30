@@ -1,0 +1,78 @@
+%if %sysfunc(libref(BMR)) %then %do; %include "\\bop-pw1-sass03.bopadtree.bop.gov\OREVol\ORE_LIB\Projects\HSD Projects\SQL_SERVER_CONNECT.sas"; %end;
+libname HSD_AUTO "G:\ORE\HSD_AUTO";
+
+
+proc sql;
+%connect_to_sql;
+
+CREATE TABLE HSD_AUTO.last_BP AS SELECT *	
+	FROM connection to BEMR (
+		SELECT DISTINCT 
+				offender_code, CAST(pressure_systolic as int) systolic, CAST(pressure_diastolic as int) diastolic, effective_date
+			FROM (SELECT ROW_NUMBER() OVER(PARTITION BY bp.offender_code ORDER BY effective_date DESC) AS rn, bp.*
+				FROM ADHOC.VW_AH_VITALBLOODPRESSURE AS bp
+				WHERE pressure_systolic <> '' AND pressure_diastolic <> '' AND bp.record_status = 'ACTIVE' and 
+					effective_date >= DATEADD(YEAR,-5,CURRENT_TIMESTAMP)) AS result  
+		WHERE rn = 1);
+ALTER TABLE  HSD_AUTO.last_BP ADD CONSTRAINT PRIM_KEY PRIMARY KEY(offender_code);
+
+CREATE TABLE HSD_AUTO.last_weight AS SELECT *	
+	FROM connection to BEMR (
+		SELECT DISTINCT offender_code, convert(float,weight) weight, effective_date
+			FROM (SELECT ROW_NUMBER() OVER(PARTITION BY weight.offender_code ORDER BY effective_date DESC) AS rn, weight.* FROM ADHOC.VW_AH_VITALWEIGHT AS weight
+	
+				WHERE weight <> '' AND record_status = 'ACTIVE')  AS result    
+		WHERE rn = 1);
+ALTER TABLE HSD_AUTO.last_weight ADD CONSTRAINT PRIM_KEY PRIMARY KEY(offender_code);
+
+CREATE TABLE HSD_AUTO.last_height AS SELECT *	
+	FROM connection to BEMR (
+		SELECT DISTINCT offender_code, convert(float,height) height, effective_date
+			FROM (SELECT ROW_NUMBER() OVER(PARTITION BY height.offender_code ORDER BY effective_date DESC) AS rn, height.* 
+					FROM ADHOC.VW_AH_VITALHEIGHT AS height
+			
+				WHERE height <> '' AND record_status = 'ACTIVE')  AS result    
+		WHERE rn = 1);
+ALTER TABLE HSD_AUTO.last_height ADD CONSTRAINT PRIM_KEY PRIMARY KEY(offender_code);
+
+/*CREATE Temp tables for formal BP*/
+CREATE TABLE temp_bp AS SELECT *	
+	FROM connection to BEMR (
+	SELECT DISTINCT offender_code, CAST(pressure_systolic as int) systolic, CAST(pressure_diastolic as int) diastolic, effective_date, vitals.offact_id AS vitals_offact_id
+				FROM ADHOC.VW_AH_VITALBLOODPRESSURE AS bp
+				INNER JOIN ADHOC.VW_AH_OFFENDER_ACTIVITY_VITAL AS vitals ON bp.vitals_id = vitals.vitals_id	AND vitals.record_status = 'ACTIVE'
+				WHERE pressure_systolic <> '' AND pressure_diastolic <> '' AND bp.record_status = 'ACTIVE' and 
+					effective_date >= DATEADD(YEAR,-1,CURRENT_TIMESTAMP));	
+
+CREATE TABLE temp_sched AS SELECT *	
+	FROM connection to BEMR (
+		SELECT DISTINCT 
+			offact_id, offender_code, activity
+        FROM ADHOC.VW_AH_SCHEDULING_COMPLETED AS sched 
+        WHERE sched.record_status = 'ACTIVE' 
+			AND sched.activity IN ('Preventive Health Visit', 'Chronic Care Visit', 'History/Physical', '14 Day Dr Eval')
+			AND sched.process_date >= DATEADD(YEAR,-1,CURRENT_TIMESTAMP)
+		);
+
+CREATE TABLE last_formal_BP AS 
+	SELECT DISTINCT 
+		temp_bp.offender_code, systolic, diastolic, effective_date
+	FROM temp_bp
+	INNER JOIN temp_sched on temp_bp.vitals_offact_id = temp_sched.offact_id
+	ORDER BY offender_code, effective_date;
+
+/*END CREATE Temp table for formal BP*/
+
+%disconnect_from_sql;
+quit;
+
+/*Ensure only one formal BP if multiple readings*/
+data HSD_AUTO.last_formal_BP;
+set last_formal_BP;
+if last.offender_code;
+by offender_code effective_date;
+run;
+
+proc sql;
+ALTER TABLE HSD_AUTO.last_formal_BP ADD CONSTRAINT PRIM_KEY PRIMARY KEY(offender_code);
+quit;	
