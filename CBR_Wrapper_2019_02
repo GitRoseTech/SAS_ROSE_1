@@ -1,0 +1,898 @@
+
+* This code generates CBR201902 report saved in the same package with code**
+/********************************************************/
+/*••••••••••••••••••••••••••••••••••••••••••••••••••••••*/
+/*•                                                    •*/
+/*•        CBR Report Generation Automation            •*/
+/*•                                                    •*/
+/*•  Purpose: Take data from CBR Analysis and          •*/
+/*•  automatically generate Reports for each           •*/
+/*•  provider identified as a CBR Recipient            •*/
+/*•                                                    •*/
+/*•  Authors: Rozita Reza                              •*/
+/*•  Date Created: 12/8/2018                           •*/
+/*•                                                    •*/
+/*••••••••••••••••••••••••••••••••••••••••••••••••••••••*/
+/********************************************************
+
+
+/*##############################################*/
+/*## Pull in list of CBR Recipients from      ##*/
+/*## Analysis data folder.                    ##*/ 
+/*## Read those NPIs into a Macro Variable    ##*/
+/*## for looping later on.                    ##*/
+/*##############################################*/
+
+/* First determine the total number of CBR recipients */
+proc sql noprint;  
+select count(*)   
+into :NObs  
+from _Sourc.final_CBR_RECIPIENTS;
+quit;
+
+%macro split;
+/* When there are more than 5,000 CBR recipients, this program will split  */
+/* the list into groups of 5,000 NPIs for processing. This is necessary to */
+/* address SAS macro variable length restrictions.     CT 2019-01-28       */
+%if &NObs.<5000 then %GOTO exit;
+%else %do;
+data cbr_out.cbr_npis;
+set cbr_dat.final_CBR_RECIPIENTS;
+if     _n_<5001  then batch=1;
+elseif _n_<10001 then batch=2;
+elseif _n_<15001 then batch=3;
+elseif _n_<20001 then batch=4;
+elseif _n_<25001 then batch=5;
+elseif _n_<30001 then batch=6;
+elseif _n_<35001 then batch=7;
+elseif _n_<40001 then batch=8;
+elseif _n_<45001 then batch=9;
+elseif _n_<50001 then batch=10;
+elseif _n_<55001 then batch=11;
+elseif _n_<60001 then batch=12;
+else batch=99;
+%exit: 
+%mend split;
+
+proc sql;
+/*proc sql outobs=10;*/
+create table cbr_out.cbr_npis as
+select prov as NPI  
+from _Sourc.final_CBR_RECIPIENTS;
+quit;
+
+proc sql noprint;  
+select count(*)   
+into :NObs  
+from cbr_out.cbr_npis ;
+select npi into :all_npis separated by ' '
+from cbr_out.CBR_NPIS;
+quit;
+
+%let current_report = CBR201901;
+ods escapechar='^';
+%put &NObs;
+%put &all_npis;
+
+
+/*####################################################*/
+/*## Prior to beginning the do loop we first        ##*/
+/*## Create Macro Variables to either apply         ##*/
+/*## formatting to or to contain text for           ##*/    
+/*## use in the ods pdf text functions below.       ##*/
+/*####################################################*/
+
+/* Assign common text formats to a macro variable     */
+/* so that changes need only be made once, but also   */
+/* for clarity of editing layout in ods pdf.          */
+%let txt_nrml=^S={FONT_SIZE=12pt FONT_FACE='times new roman'};
+%let txt_bold=^S={FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman'};
+%let txt_bold_und=^S={JUST=L textdecoration=underline FONT_SIZE=12pt FONT_WEIGHT=BOLD FONT_FACE='times new roman'};
+%let txt_und=^S={JUST=L textdecoration=underline FONT_SIZE=12pt FONT_FACE='times new roman'};
+%let txt_italic_nrml=^S={JUST=L FONT_SIZE=12pt FONT_STYLE=ITALIC FONT_FACE='times new roman'};
+%let txt_hyprlnk=^{style [color=blue textdecoration=underline FONT_FACE='times new roman'];
+%let txt_small=^S={FONT_SIZE=9.5pt FONT_FACE='times new roman'};
+
+/***********************************************************************************/
+/* Report text is placed here in macro variables to facilitate editing and updates.*/
+/***********************************************************************************/
+
+/*###########################*/
+/*#    PAGE 1 TEXT MACROS   #*/
+/*###########################*/
+%let pg1_1=&txt_nrml.The Centers for Medicare & Medicaid Services (CMS) is pleased to provide this Comparative Billing Report (CBR), 
+which can be used to support internal compliance activities. CMS has contracted with the RELI Group to develop and distribute this CBR and to 
+support providers with its use.^{newline 1};
+%let pg1_1a=&txt_bold.As appropriate, please share this CBR with others who may benefit from and/or assist with interpreting the data provided in the report.^{newline 2};
+
+%let pg1_2=&txt_bold.What is a CBR? &txt_nrml.%unquote(%bquote(CMS defines a CBR as an educational resource and tool for possible improvement. It reflects your billing patterns 
+compared to your peersí patterns for the same services in your state or specialty, and nationwide. The CBR is a free, comparative data report intended to 
+educate providers, enhance accurate billing practices, and support providersí compliance activities.^{newline 2}));
+
+%let pg1_3=&txt_bold.Why did I get a CBR? &txt_nrml.We are providing this report because your Medicare billing patterns differ from your peersí patterns 
+within your state and/or across the nation. Receiving this CBR is not an indication or precursor to 
+an audit and requires no response on your part. Selected providers, however, may be referred for additional review and education.^{newline 2};
+
+%let pg1_4=&txt_bold.Action Steps: &txt_nrml.Please carefully review this report. You may wish to check your records against data in CMSí files and review Medicare 
+guidelines to ensure compliance. If you have specific billing or coding questions, please contact your Medicare Administrative Contractor (MAC).^{newline 2};
+
+%let pg1_5=^{style [FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman' url='https://bit.ly/2QuPBzn' linkcolor=white]Training and Support: 
+^{style [color=blue textdecoration=underline]Register}}&txt_nrml.for our free webinar on January 24, 2019, at 3:00pm EST. 
+The webinar will be recorded for those unable to attend.^{newline 2};
+%let pg1_5b=^{style [ FONT_SIZE=12pt FONT_FACE='times new roman' url='https://cbr.cbrpepper.org/home' linkcolor=white] Visit 
+^{style [FONT_WEIGHT=BOLD color=blue textdecoration=underline]CBR.CBRPEPPER.org}}&txt_nrml. to access the recording and additional resources.^{newline 1};
+%let pg1_5c=&txt_nrml.Questions may be submitted at any time through the website Help Desk(Help/Contact Us tab) or at 1-800-771-4430 (M ñ F, 9 a.m. ñ 5 p.m. EST).^{newline 2};
+%let pg1_6=&txt_nrml.Sincerely,^{newline 2};
+%let pg1_7=&txt_nrml.The CBR Team;
+
+
+/*###########################*/
+/*#    PAGE 2 TEXT MACROS   #*/
+/*###########################*/
+%let pg2_1=&txt_bold_und.Introduction ^{newline 2}
+&txt_nrml.CBR201901 focuses on rendering providers who submitted claims to Medicare Part B for Intensity-Modulated Radiation Therapy (IMRT). According to the &txt_italic_nrml.2018 Medicare Fee-for-Service Supplemental
+Improper Payment Data &txt_nrml.report, the improper payment rate for oncology radiation therapy was 10.3 percent, with over $112 million in projected improper payments. IMRT is included in this category. IMRT can 
+deliver a higher dose of radiation within the tumor while delivering a lower dose of radiation to surrounding healthy tissue. ^{newline 2};
+
+%let pg2_2=&txt_bold_und.Coverage and Documentation Overview ^{newline 2}
+&txt_nrml.%str(This portion of the CBR offers a broad look at the coverage and documentation requirements to ensure compliance with Medicare guidelines. The information provided does not supersede 
+or alter the coverage and documentation policies as outlined by the MACsí Local Coverage Determinations (LCDs))^{newline 2};
+
+%let pg2_3=&txt_nrml.%str(For the purposes of this CBR, IMRT services are identified in the claims data by CPTÆ code 77301. This code is typically reported only 
+once per course of IMRT. The following information should be included in the documentation for IMRT:)^{newline 2};
+
+%let pg2_4=
+&txt_nrml.%str(        ï Diagnosis)^{newline 1}
+&txt_nrml.%str(        ï Verification of the treatment plan)^{newline 1}
+&txt_nrml.%str(        ï Means of reproducible patient position (blocks/aids/bumps, etc.))^{newline 1}
+&txt_nrml.%str(        ï Consideration of target organ and motion)^{newline 1}
+&txt_nrml.%str(        ï Ultrasounds, CT guidance, and/or implantation of marker seeds)^{newline 1};
+
+%let pg2_5=
+&txt_nrml.%str(             o All elements associated with implementation)^{newline 1}
+&txt_nrml.%str(             o Images of treatment portals)^{newline 1}
+&txt_nrml.%str(             o Physical dose measures (calculations of the IMRT dose distribution))^{newline 1}
+&txt_nrml.%str(             o Daily, ongoing correlation between image-based IMRT plan and dose delivery)^{newline 2};
+
+%let pg2_6=&txt_bold_und.Basic Coding Guidelines^{newline 2}
+&txt_nrml.Table 1 identifies CPTÆ codes that may not be reported with CPTÆ code 77301 
+(IMRT planning) on the same date of service. ^{newline 2};
+
+%let pg2_7=&txt_bold.Table 1. CPTÆ Codes; 
+
+/*###########################*/
+/*#    PAGE 3 TEXT MACROS   #*/
+/*###########################*/
+%let pg3_1=&txt_nrml.Multiple treatment sessions on the same day are payable, as long as there has been a distinct break in therapy services,
+ and the individual sessions are of the character usually furnished on different days.
+ CPTÆ modifier 59 must be submitted with the appropriate codes to indicate a distinct and separate session.^{newline 2};
+
+ %let pg3_2=
+&txt_nrml.%str(^_^_^_^_^_ï	R^meport CPTÆ code 77301 &txt_und.once&txt_nrml &txt_nrml.per course of therapy, even if there is a planned ìcone-downî treatment   
+ feature or change in field size. If this occurs, coding for conventional treatment should be used.)^{newline 1}
+&txt_nrml.%str(^_^_^_^_^_ï	A^m second unit may be submitted only if there are changes in patient anatomy during treatment that requires    a repeat CT scan.)^{newline 2};
+  
+%let pg3_3=&txt_bold_und.Metrics^{newline 2}
+&txt_nrml.This report is an analysis of the following metrics: ^{newline 2};
+
+%let pg3_4=&txt_nrml.^_^_^_^_^_1. Average number of IMRT planning services (CPTÆ code 77301) billed, per beneficiary.^{newline 1}
+^_^_^_^_^_2. Average allowed charges for the first instance of IMRT planning code 77301, per beneficiary.^{newline 1}
+^_^_^_^_^_3. A^mverage number of of CT scans for therapy guide (CPTÆ code 77014) billed 0 ñ 14 days prior to or up to 60 days after the first instance of CPTÆ code 77301, per beneficiary.^{newline 1}
+^_^_^_^_^_4. A^mverage number of intensity-modulated treatment delivery (HCPCSÆ codes G6015 or G6016 [intensity-modulated treatment delivery, single or multiple fields/arcs, via narrow spatially
+and temporally modulated beams, binary, dynamic MLC, per treatment session]) billed 0 ñ 14 days prior to or up to 60 days after the first instance of CPTÆ code 77301, per beneficiary.^{newline 1}
+^_^_^_^_^_5. A^mverage number of evaluation and management CPTÆ codes (see Table 2) billed 0 ñ 14 days prior to or up to 60 days after the first instance of CPTÆ code 77301, per beneficiary^{newline 2};
+
+%let pg3_5=&txt_bold.%str(Table 2: Evaluation and Management (E&M) CPTÆ Codes);
+%let pg3_6=&txt_small.CPTÆ codes and descriptors are copyright 2016/2017 American Medical Association. All rights reserved. Applicable FARS/DFARS apply.^{newline 3};
+%let pg3_7=&txt_nrml.The CBR team identified the services that were frequently billed within 14 days prior to or within 60 days after the first instance of the IMRT planning 
+code 77301 was billed. Code 77014 was billed in 61.7 percent of claims, while code G6015 or G6016 was billed in 35.4 percent of claims. Evaluation and management codes are 
+evaluated to present overall utilization patterns for providers. Metrics 3 ñ 5 report on these services.^{newline 1}
+Statistics were calculated for each provider, all providers in the state, and all providers in the nation. Each providerís values are compared to his/her state peer group
+values and to the national values. There are four possible outcomes for the comparisons between the provider and his/her peer groups:^{newline 2};
+
+%let pg3_8=&txt_nrml.^_^_^_^_^_1. Significantly Higher ó Providerís value is above the 95th percentile from the state peer or national mean.^{newline 1}
+^_^_^_^_^_2. Higher ó Providerís value is greater than the state peer or national mean.^{newline 1}  
+^_^_^_^_^_3. Does Not Exceed ó Providerís value is not higher than the state peer or national mean.^{newline 1}
+^_^_^_^_^_4. N/A ó Provider does not have sufficient data for comparison.^{newline 2};
+
+
+
+/*###########################*/
+/*#    PAGE 5 TEXT MACROS   #*/
+/*###########################*/
+%let pg4_1=&txt_bold_und.Methods and Results^{newline 2};
+%let pg4_2=&txt_nrml.This report is an analysis of rendering providers that billed CPTÆ code 77301 on Medicare Part B claims extracted from the Integrated Data Repository,
+based on the latest version of claims as of Dec. 18, 2018, for cancer-related diagnoses, as identified by an ICD-10-CM diagnosis code of prostate cancer (C61), breast cancer
+(C50.0 ñ C50.9), lung cancer (C34.0 ñ C34.9), or brain cancer (C71.0 ñ C71.9). The analysis includes claims with dates of service from Sept. 1, 2017, to Aug. 31, 2018. For the
+trend analysis (Figure 1), claims represent dates of service between Sept. 1, 2015, and Aug. 31, 2018. ^{newline 1};
+
+%let pg4_3=&txt_nrml.There are 4,158 rendering providers nationwide with allowed charges for CPTÆ code 77301. The criteria for receiving a CBR is that the provider:^{newline 2}
+ï	Has at least 10 beneficiaries with IMRT planning services (code) 77301, and^{newline 1}
+ï	I^ms significantly higher compared to either the state or national average in any one of the five metrics (95th percentile), and^{newline 1}
+ï	Has at least $18,000 in total allowed IMRT charges.^{newline 2}
+Table 3 shows your average number of IMRT planning services per beneficiary, which is calculated by ^ndividing the total number of IMRT planning services you billed during the
+time period by the number of beneficiaries that had at least one IMRT planning code (77301) billed during the time period. Your comparison with the average number of 
+IMRT planning services per beneficiary in your state and in the nation is presented in Table 3.^{newline 2};
+
+%let pg4_4=&txt_bold.Table 3: Your Average Number of IMRT Planning Services (Code 77301) Billed per Beneficiary^{newline 2}
+Sept. 1, 2017, through Aug. 31, 2018;
+
+%let pg4_5=&txt_nrml.^{newline 1}Table 4 shows your average allowed charges billed during an IMRT treatment period (for the first instance of the IMRT planning service code 77301)
+per beneficiary, which is calculated by dividing the sum of allowed charges for the first instance of 77301 by the total number of beneficiaries billed during the time
+period. Your comparison with the average allowed charges per IMRT planning service per beneficiary in your state and in the nation is presented in Table 4.^{newline 2};
+
+%let pg4_6=&txt_bold.Table 4: Your Average Allowed Charges per Beneficiary for the First Instance of 77301^{newline 2}
+Sept. 1, 2017, through Aug. 31, 2018;
+
+%let pg4_7=&txt_small.*First instance of IMRT planning code 77301 billed during the time period.^{newline 1};
+%let pg4_7a=&txt_small.NA: State average is not available when there are fewer than three providers in the state.^{newline 2};
+%let pg4_7b=&txt_small.NA: State average is not available when there are fewer than three providers in the state.^{newline 3};
+
+
+
+/*###########################*/
+/*#    PAGE 6 TEXT MACROS   #*/
+/*###########################*/
+
+%let pg6_1a=&txt_nrml.Table 5 shows your average number of CT scans (code 77014) billed within 0 ñ 14 days prior to or up to 60 days after the first instance of the
+IMRT planning service code 77301, per beneficiary. This is calculated by dividing the total number of CT scans you billed by the total number of your beneficiaries
+that had at least one CT scan billed during the time period. Your comparison with the state and national averages is presented in Table 5.^{newline 2};
+
+%let pg6_1=&txt_bold.Table 5: Your Average Number of CT Scans (Code 77014) Billed 0 ñ 14 Days 
+Prior to or up to 60 Days After for the First Instance of 77301, per Beneficiary^{newline 2};
+
+%let pg6_2=&txt_bold.Sept. 1, 2017, through Aug. 31, 2018^{newline 1};
+
+%let pg6_3=&txt_nrml.Table 6 shows your average number of intensity-modulated treatment delivery services (codes G6015 
+or G6016) billed within 0 ñ 14 days prior to or up to 60 days after the first instance of the IMRT planning service 
+code 77301, per beneficiary. This is calculated by dividing the total number of intensity-modulated treatment delivery 
+services you billed by the total number of your beneficiaries that had at least one intensity-modulated treatment delivery 
+service billed during the time period. Your comparison with the state and national averages is presented in Table 6.^{newline 2};
+
+%let pg6_4=&txt_bold.Table 6: Your Average Number of Intensity-Modulated Treatment Delivery (HCPCSÆ Code G6015 or G6016) 
+Billed 0 ñ 14 Days Prior to or up to 60 Days After for the First Instance of 77301, per Beneficiary^{newline 2};
+
+%let pg6_5=&txt_bold.Sept. 1, 2017, through Aug. 31, 2018^{newline 1};
+
+/* Put string around this text to handle the ampersand in "E&M" CT 2018-01-07*/
+%let pg6_6=&txt_nrml.%str(Table 7 shows your average number of visits (see E&M codes in Table 2) billed within 0 ñ 14 days 
+prior to or up to 60 days after for the first instance of the 77301 IMRT planning service, per beneficiary. This is 
+calculated by dividing the total number of visits you billed by the total number of your beneficiaries that had at least 
+one visit billed during the time period. Your comparison with the state and national averages is presented in Table 7.)^{newline 2}; 
+
+/*###########################*/
+/*#    PAGE 7 TEXT MACROS   #*/
+/*###########################*/
+
+%let pg7_1=&txt_bold.Table 7: Your Average Number of Evaluation and Management CPTÆ Codes (see Table 2) Billed 0 ñ 14 Days 
+Prior to or up to 60 Days After for the First Instance of 77301, per Beneficiary^{newline 2};
+
+%let pg7_2=&txt_bold.Sept. 1, 2017, through Aug. 31, 2018^{newline 1};
+
+%let pg7_3=&txt_nrml.Figure 1 illustrates your trend in the total number of IMRT planning services (77301) billed over the most recent three years:^{newline 2};
+
+%let pg7_4=&txt_nrml.%str(     ï Year 1 represents claims between Sept. 1, 2015, and Aug. 31, 2016)^{newline 1};
+
+%let pg7_5=&txt_nrml.%str(     ï Year 2 represents claims between Sept. 1, 2016, and Aug. 31, 2017)^{newline 1};
+
+%let pg7_6=&txt_nrml.%str(     ï Year 3 represents claims between Sept. 1, 2017, and Aug. 31, 2018)^{newline 3};
+
+%let pg7_7=&txt_bold.                              Figure 1: Your Total Number of IMRT Services Billed, Trend over Time^{newline 2};
+
+/*###########################*/
+/*#    PAGE 8 TEXT MACROS   #*/
+/*###########################*/
+
+%let pg8_1=&txt_bold_und.References and Resources^{newline 2};
+%let pg8_1b=&txt_nrml.Office of Inspector General Publication:^{newline 1};
+%let pg8_2=^{style [FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman' url='https://tinyurl.com/ybktmf5r' linkcolor=white]
+&txt_hyprlnk.2018 Medicare Fee-for-Service Supplemental Improper Payment Data}}^{newline 4};
+
+%let pg8_3=&txt_nrml. CMS Publication 100-04, Chapter 13:  Radiology Services and Other Diagnostic Procedures:^{newline 1};
+
+%let pg8_4=^{style [FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman' url='https://www.cms.gov/Regulations-and-Guidance/Guidance/Manuals/Downloads/clm104c13.pdf' linkcolor=white]
+&txt_hyprlnk.https://www.cms.gov/Regulations-and-Guidance/Guidance/Manuals/Downloads/clm104c13.pdf}}^{newline 5};
+
+%let pg8_5=&txt_nrml. LCDs related to IMRT:^{newline 2};
+
+%let pg8_6=^{style [FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman' url='https://www.cms.gov/medicare-coverage-database/details/lcd-details.aspx?LCDId=36773' linkcolor=white]
+  &txt_hyprlnk.First Coast Services}}^{newline 3};
+
+%let pg8_7=^{style [FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman' url='https://www.cms.gov/medicare-coverage-database/details/lcd-details.aspx?LCDId=36711' linkcolor=white]
+  &txt_hyprlnk.Novitas}}^{newline 3};
+
+%let pg8_8=^{style [FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman' url='https://www.cms.gov/medicare-coverage-database/details/lcd-details.aspx?LCDId=34080' linkcolor=white]
+  &txt_hyprlnk.Noridian}}^{newline 3};
+
+%let pg8_9=^{style [FONT_WEIGHT=BOLD FONT_SIZE=12pt FONT_FACE='times new roman' url='https://www.cms.gov/medicare-coverage-database/details/lcd-details.aspx?LCDId=34217' linkcolor=white]
+  &txt_hyprlnk.Noridian}}^{newline 3};
+/*##############################################*/
+/*## End of macro variables for PDF text      ##*/
+/*##############################################*/
+
+options symbolgen; 
+%macro main;
+%do i=1 %to &NObs;
+%let current_npi =%scan(&all_npis,&i,' ');
+%let current_npi_q = %unquote(%str(%'&current_npi%'));
+%let curr_npi_q = %unquote(%str(%')&current_npi%str(%'));
+%let name = &current_npi.&current_report.;
+
+%put # # # Processing &current_npi. # # #;
+%put # # # Processing &current_npi_q. # # #;
+%put # # # Processing &curr_npi_q. # # #;
+proc sql;
+create table cbr_out.curr_address_&current_npi. as
+select *
+from _sourc.select2_final
+where npi in (&current_npi_q.);
+quit;
+
+/* Put Provider Address Info into Macro Variables */
+/* for use in PDF generation.                     */
+proc sql noprint;
+select trim(prov_name)   into :current_name_orig   from cbr_out.curr_address_&current_npi.;
+select trim(address1)    into :current_address     from cbr_out.curr_address_&current_npi.;
+select trim(address2)    into :current_address2    from cbr_out.curr_address_&current_npi.;
+select trim(CITY_ST_ZIP) into :current_city_st_zip from cbr_out.curr_address_&current_npi.;
+select trim(fax_num)     into :current_fax         from cbr_out.curr_address_&current_npi.;
+select trim(email)       into :current_email_orig  from cbr_out.curr_address_&current_npi.;
+quit;
+
+proc sql;
+create table cbr_out.curr_claims_&current_npi. as
+select *
+from _sourc.IMRT_Planning_srvcs
+where npi_id in (&current_npi_q);
+quit;
+
+proc sql;
+create table cbr_out.curr_financial_&current_npi. as
+select *
+from _sourc.IMRT_Charges
+where npi_id in (&current_npi_q);
+quit;
+
+proc sql;
+create table cbr_out.curr_G6015_6_&current_npi. as
+select *
+from _sourc.G_Code_srvcs_1
+where prov in (&current_npi_q);
+quit;
+
+proc sql noprint;
+select 1 into :var1
+from cbr_out.curr_G6015_6_&current_npi.
+where state_class = 'N/A';
+quit;
+
+proc sql noprint;
+select 0 into :var1
+from cbr_out.curr_G6015_6_&current_npi.
+where state_class ne 'N/A';
+quit;
+
+%if &var1 = 1 %then %do;
+data cbr_out.curr_G6015_6_&current_npi.(drop=you_n peer_n denominator_n numerator_n nation_n);
+set cbr_out.curr_G6015_6_&current_npi. (rename=(you=you_n peer=peer_n nation=nation_n numerator=numerator_n denominator=denominator_n)); 
+format you  $20.;
+format peer $20.;
+format nation $20.;
+format Denominator $20.;
+format Numerator $20.;
+you = 'N/A';
+peer = 'N/A';
+nation = 'N/A';
+numerator = 'N/A';
+denominator = 'N/A';
+run;
+%end;
+
+
+proc sql;
+create table cbr_out.curr_em_&current_npi. as
+select * 
+from _sourc.EM_srvcs_1
+where npi_id in (&current_npi_q);
+quit;
+proc sql noprint;
+select 1 into :var2
+from cbr_out.curr_em_&current_npi.
+where state_class = 'N/A';
+quit;
+
+proc sql noprint;
+select 0 into :var2
+from cbr_out.curr_em_&current_npi.
+where state_class ne 'N/A';
+quit;
+
+%if &var2 = 1 %then %do;
+data cbr_out.curr_em_&current_npi.(drop=you_n peer_n denominator_n numerator_n nation_n);
+set cbr_out.curr_em_&current_npi. (rename=(you=you_n peer=peer_n nation=nation_n numerator=numerator_n denominator=denominator_n)); 
+format you  $20.;
+format peer $20.;
+format nation $20.;
+format Denominator $20.;
+format Numerator $20.;
+you = 'N/A';
+peer = 'N/A';
+nation = 'N/A';
+numerator = 'N/A';
+denominator = 'N/A';
+run;
+%end;
+
+
+
+proc sql;
+create table cbr_out.curr_77014_&current_npi. as 
+select * 
+from _sourc.CT_SCAN_SRVCS_1
+where prov in (&current_npi_q);
+quit;
+
+proc sql noprint;
+select 1 into :var3
+from cbr_out.curr_77014_&current_npi.
+where state_class = 'N/A';
+quit;
+
+proc sql noprint;
+select 0 into :var3
+from cbr_out.curr_77014_&current_npi.
+where state_class ne 'N/A';
+quit;
+
+%if &var3 = 1 %then %do;
+data cbr_out.curr_77014_&current_npi.(drop=you_n peer_n denominator_n numerator_n nation_n);
+set cbr_out.curr_77014_&current_npi. (rename=(you=you_n peer=peer_n nation=nation_n numerator=numerator_n denominator=denominator_n)); 
+format you  $20.;
+format peer $20.;
+format nation $20.;
+format Denominator $20.;
+format Numerator $20.;
+you = 'N/A';
+peer = 'N/A';
+nation = 'N/A';
+numerator = 'N/A';
+denominator = 'N/A';
+run;
+%end;
+
+/*##############################################*/
+/*## Get year summary data for current NPI    ##*/
+/*## and move data into two columns by year   ##*/
+/*##############################################*/
+
+proc sql;
+create table cbr_out.curr_data_hist as
+select prov as NPI
+      ,clm_cnt_2018 as Year_2018
+      ,clm_cnt_2017 as Year_2017
+      ,clm_cnt_2016 as Year_2016
+from cbr_yr.yearly_77301_totals_by_prov_z
+where prov in (&current_npi_q);
+
+proc sql;
+create table cbr_out.curr_hist_&current_npi. as
+select '2018' as Year
+      ,Year_2018 as total
+from cbr_out.curr_data_hist
+union
+select '2017' as Year
+      ,Year_2017 as total
+from cbr_out.curr_data_hist
+union
+select '2016' as Year
+      ,Year_2016 as total
+from cbr_out.curr_data_hist;
+quit;
+
+
+/*Begging of the ODS PDF Print*/
+ods _all_ close;
+    options  orientation=portrait
+			 papersize=letter
+             rightmargin=0.5in   leftmargin=0.5in
+	         topmargin=0.5in bottommargin=0.5in
+             nodate nonumber pageno=1;
+    ods noproctitle;
+    title;
+    footnote;
+             
+Ods pdf file="R:\CBR201901\Automation\Reports\&name..pdf" notoc nogtitle nogfootnote startpage=never bookmarkgen=yes
+author='RELI Group, Inc.' keywords="IMRT" subject="CBR201901";
+ods escapechar='^';
+ 
+footnote1 "_____________________________________________________________________________________";
+footnote2 h=9pt f='times new roman' j=l "CBR#: &current_report._&current_npi.^_^_^_^_^_^_^_^_^_^_^_^_^_
+^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_ 
+^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_
+^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_^_Page ^{thispage} of 8";
+		 
+%let today_date=%sysfunc(date(),worddate18.);
+
+ods layout absolute;
+
+/******************/
+/*  Page 1 Codes  */
+/******************/
+
+/*Insert CBR Logo*/
+ods region  x=0.001in y=0.1in height=1in width=1.5in;
+
+data _NULL_;
+	dcl odsout dak();
+    dak.image(file:"R:\CBR201809\Reports\CBR_Logo.jpg");
+run;
+
+/* Produce letter Address Date and Greeting */
+ods region x=0.001in y=1.3in width=5in;
+/*ods pdf text="&txt_nrml.&today_date";*/
+ods pdf text="&txt_nrml.January 11, 2019";
+
+ods region x=0.001in y=1.7in /*height=1in*/ width=3.8in;
+ods pdf text="&txt_nrml.RELI Group^{newline 1}
+          5520 Research Park Dr. #105^{newline 1}
+          Catonsville, MD 21228";
+
+ods region x=0.001in y=2.5in /*height=1in*/ width=3.8in;
+ods pdf text="&txt_nrml.&current_name_orig^{newline 1}";
+
+ods pdf text="&txt_nrml.&current_Address^{newline 1}";
+%if %length(&current_Address2) > 0 %then %do;
+ods pdf text="&txt_nrml.&current_Address2^{newline 1}";
+%end;
+ods pdf text="&txt_nrml.&current_City_st_zip";
+	
+* Right of the page;
+ods region x=4.4in y=1.7in;
+ods pdf text="&txt_nrml.CBR #: CBR201901^{newline 1}
+Intensity-Modulated Radiation Therapy";
+
+ods region x=4.4in y=2.5in;
+ods pdf text="&txt_nrml.NPI #: &current_npi ^{newline 1}
+Fax #: &current_fax^{newline 1}
+Email: &current_email_orig";
+
+ods region x=0.001in y=3.4in width=7in;
+
+ods pdf text="&txt_nrml.Dear Medicare Provider: ^{newline 2}";
+
+/* Begin Body of the PAGE */
+ods pdf text="&pg1_1."; 
+ods pdf text="&pg1_1a."; 
+ods pdf text="&pg1_2."; 
+ods pdf text="&pg1_3."; 
+ods pdf text="&pg1_4."; 
+ods pdf text="&pg1_5."; 
+ods pdf text="&pg1_5b.";
+ods pdf text="&pg1_5c.";
+ods pdf text="&pg1_6.";
+ods pdf text="&pg1_7.";
+
+
+ods layout end;
+
+/******************/
+/*  Page 2 Codes  */
+/******************/
+
+ods pdf startpage=now;
+options  orientation=portrait
+	     papersize=letter
+         rightmargin=0.5in   leftmargin=0.5in
+	     topmargin=0.5in bottommargin=0.5in
+         nodate nonumber nocenter;
+
+ods layout start;
+ods layout absolute;
+ods escapechar='^';
+/* Begin Body of the PAGE */
+ods region x=2in y=0.25in width=3.5in;
+
+ods pdf text="^S={JUST=C FONT_SIZE=12pt FONT_WEIGHT=BOLD FONT_FACE='times new roman'} 
+Comparative Billing Report CBR201901 ^{newline 1}
+January 11, 2019 ^{newline 1}
+Intensity-Modulated Radiation Therapy";
+
+
+ods region x=0.001in y=1.25in width=7in;
+ods pdf text="&pg2_1."; 
+ods pdf text="&pg2_2."; 
+ods pdf text="&pg2_3."; 
+ods pdf text="&pg2_4."; 
+ods pdf text="&pg2_5."; 
+ods pdf text="&pg2_6.";
+
+
+ods region x=0.05in y=7.7in width=11in;
+ods pdf text="&pg2_7.";
+
+proc report nowd data=cbr_in.guideline_codes (firstobs=1 obs=2) nocenter wrap style(header)={background=cx494068 color=cxbbb2e0 font_size=11pt};
+columns CPT_Codes Abbreviated_Description;
+define CPT_Codes / display 'CPTÆ Codes' center style=[font_size=11pt fontfamily='times new roman' cellwidth=17mm /*cellheight=13mm*/ cellpadding=1mm] ;
+define Abbreviated_Description / display 'DESCRIPTION' left style=[font_size=10.2pt fontfamily='times new roman' cellwidth=153mm /*cellheight=13mm*/ cellpadding=1mm];
+
+compute CPT_Codes;
+count+1;
+if mod(count,2) then do;
+call define (_row_,"style","style=[background=lightgrey]");
+end;
+endcomp;
+run;
+
+ods layout end;
+
+/******************/
+/*  Page 3 Codes  */
+/******************/
+ods layout end;
+
+ods pdf startpage=now;
+ods layout absolute;
+options  orientation=portrait
+	     papersize=letter
+         rightmargin=0.5in   leftmargin=0.5in
+	     topmargin=0.5in bottommargin=0.5in
+         nodate nonumber nocenter;
+
+*ods layout start width=8.49in height=10.99;
+
+ods region x=0.05in y=0.2in width=11in;
+
+proc report nowd data=cbr_in.guideline_codes (firstobs=3) nocenter wrap style(header)={background=cx494068 color=cxbbb2e0 font_size=11pt};
+columns CPT_Codes Abbreviated_Description;
+define CPT_Codes / display 'CPTÆ Codes' center style=[font_size=11pt fontfamily='times new roman' cellwidth=17mm /*cellheight=13mm*/ cellpadding=1mm] ;
+define Abbreviated_Description / display 'DESCRIPTION' left style=[font_size=10.2pt fontfamily='times new roman' cellwidth=153mm /*cellheight=13mm*/ cellpadding=1mm];
+
+compute CPT_Codes;
+count+1;
+if mod(count,2) then do;
+call define (_row_,"style","style=[background=lightgrey]");
+end;
+endcomp;
+run;
+
+ods region x=0.001in y=3.70in width=11in;
+ods pdf text="&pg3_1.";
+ods pdf text="&pg3_2.";
+ods pdf text="&pg3_3.";
+ods pdf text="&pg3_4.";
+
+ods layout end;
+
+/******************/
+/*  Page 4 Codes  */
+/******************/
+ods pdf startpage=now;
+ods layout absolute;
+options  orientation=portrait
+	     papersize=letter
+         rightmargin=0.5in   leftmargin=0.5in
+	     topmargin=0.5in bottommargin=0.5in
+         nodate nonumber nocenter;
+/*The Table*/
+ods region x=0.05in y=0.2in width=11in;
+ods pdf text="&pg3_5.";
+
+proc report nowd data=cbr_in.CPT_CODES nocenter wrap style(header)={background=cx494068 color=cxbbb2e0 font_size=12pt};
+columns CPT_Code Abbreviated_Description;
+define CPT_Code / display 'CPTÆ Codes' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=6mm*/ cellpadding=1mm] ;
+define Abbreviated_Description / display 'DESCRIPTION' left style=[font_size=11pt fontfamily='times new roman' cellwidth=140mm /*cellheight=6mm*/ cellpadding=1mm];
+compute CPT_Code;
+count+1;
+if mod(count,2) then do;
+call define (_row_,"style","style=[background=lightgrey]");
+end;
+endcomp;
+run;
+
+ods pdf text="&pg3_6.";
+ods pdf text="&pg3_7.";
+ods pdf text="&pg3_8.";
+*ods pdf text="&pg3_9.";
+*ods pdf text="&pg3_10.";
+ods layout end;
+
+/******************/
+/*  Page 5 Codes  */
+/******************/
+ods layout end;
+ods pdf startpage=now;
+ods layout absolute;
+options  orientation=portrait
+	     papersize=letter
+         rightmargin=0.5in   leftmargin=0.5in
+	     topmargin=0.5in bottommargin=0.5in
+         nodate nonumber nocenter;
+
+ods pdf text="&pg4_1.";
+ods pdf text="&pg4_2.";
+ods pdf text= "&pg4_3.";
+ods pdf text= "&pg4_4.";
+
+
+proc report nowd data=cbr_out.curr_claims_&current_npi. nocenter wrap style(header)={background=cx494068 color=cxbbb2e0 font_size=12pt};
+columns denominator numerator you peer state_class nation nation_class;
+define denominator / display 'Beneficiaries with 1+ IMRT Planning Service' center style=[font_size=11pt fontfamily='times new roman' cellwidth=28mm /*cellheight=9mm*/ cellpadding=1mm] ;
+define numerator / display 'IMRT Planning Services billed' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define you / display 'Your Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=6mm*/ cellpadding=1mm];
+define peer / display 'Your State Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define state_class / display 'Comparison with Your State' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation / display 'National Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation_class / display 'Comparison with Nation' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+run;
+
+ods pdf text= "&pg4_5.";
+ods pdf text= "&pg4_6.";
+
+proc report nowd data=cbr_out.curr_financial_&current_npi. nocenter wrap style(header)={background=cx494068 color=cxbbb2e0 font_size=12pt};
+columns denominator numerator you peer state_class nation nation_class;
+define denominator / display 'Number of Beneficiaries' center style=[font_size=11pt fontfamily='times new roman' cellwidth=26mm /*cellheight=9mm*/ cellpadding=1mm] ;
+define numerator / display 'Allowed Charges' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define you / display 'Your Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define peer / display 'Your State Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define state_class / display 'Comparison with Your State' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation / display 'National Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation_class / display 'Comparison with Nation' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+run;
+ods pdf text= "&pg4_7.";
+ods pdf text= "&pg4_7a.";
+
+ods layout end;
+
+/*################*/
+/*#    PAGE 6    #*/
+/*################*/
+ods pdf startpage=now;
+ods layout absolute;
+options  orientation=portrait
+	     papersize=letter
+         rightmargin=0.5in   leftmargin=0.5in
+	     topmargin=0.5in bottommargin=0.5in
+         nodate nonumber nocenter;
+
+goptions reset=goptions;
+/*goptions reset=all;*/
+
+ods pdf text="&pg6_1a.";
+ods pdf text="&pg6_1.";
+ods pdf text="&pg6_2.";
+/*##############################################*/
+/*##   Table 77014                            ##*/
+/*##############################################*/
+proc report nowd data=cbr_out.curr_77014_&current_npi. nocenter wrap style(header)={background=cx494068 color=cxbbb2e0 font_size=12pt};
+columns denominator numerator you peer state_class nation nation_class;
+define denominator / display 'Beneficiaries with 1+ CT Scans*' center style=[font_size=11pt fontfamily='times new roman' cellwidth=26mm /*cellheight=9mm*/ cellpadding=1mm] ;
+define numerator / display 'Number of CT Scans' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define you / display 'Your Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define peer / display 'Your State Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define state_class / display 'Comparison with Your State' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation / display 'National Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=18mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation_class / display 'Comparison with Nation' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+run;
+ods pdf text="&pg4_7.";
+ods pdf text="&pg4_7b.";
+
+ods pdf text="&pg6_3.";
+ods pdf text="&pg6_4.";
+ods pdf text="&pg6_5.";
+
+/*##############################################*/
+/*##   Table G6015 and G6016                  ##*/
+/*##############################################*/
+goptions reset=goptions;
+proc report nowd data=cbr_out.curr_G6015_6_&current_npi. nocenter wrap style(header)={background=cx494068 color=cxbbb2e0 font_size=12pt};
+columns denominator numerator you peer state_class nation nation_class;
+define denominator / display 'Beneficiaries with 1+ Services' center style=[font_size=11pt fontfamily='times new roman' cellwidth=26mm /*cellheight=9mm*/ cellpadding=1mm] ;
+define numerator / display 'Number of Services' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define you / display 'Your Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=6mm*/ cellpadding=1mm];
+define peer / display 'Your State Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define state_class / display 'Comparison with Your State' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation / display 'National Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation_class / display 'Comparison with Nation' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+run;
+ods pdf text= "&pg4_7.";
+ods pdf text= "&pg4_7b.";
+
+
+ods layout end;
+
+
+/*################*/
+/*#    PAGE 7    #*/
+/*################*/
+ods pdf startpage=now;
+ods layout absolute;
+options  orientation=portrait
+	     papersize=letter
+         rightmargin=0.5in   leftmargin=0.5in
+	     topmargin=0.5in bottommargin=0.5in
+         nodate nonumber nocenter;
+
+ods pdf text="&pg6_6.";
+ods pdf text="&pg7_1.";
+ods pdf text="&pg7_2.";
+/*##############################################*/
+/*##   Table 7 E&M Utilization                ##*/
+/*##############################################*/
+
+proc report nowd data=cbr_out.curr_EM_&current_npi. nocenter split='~' style(header)={background=cx494068 color=cxbbb2e0 font_size=12pt};
+columns denominator numerator you peer state_class nation nation_class;
+define denominator / display 'Beneficiaries with 1+ Visit*' center style=[font_size=11pt fontfamily='times new roman' cellwidth=26mm /*cellheight=9mm*/ cellpadding=1mm] ;
+define numerator / display 'Number of Visits' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define you / display 'Your~Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=6mm*/ cellpadding=1mm];
+define peer / display 'Your State Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define state_class / display 'Comparison with Your State' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation / display 'National Average' center style=[font_size=11pt fontfamily='times new roman' cellwidth=20mm /*cellheight=9mm*/ cellpadding=1mm];
+define nation_class / display 'Comparison with Nation' center style=[font_size=11pt fontfamily='times new roman' cellwidth=30mm /*cellheight=9mm*/ cellpadding=1mm];
+run;
+ods pdf text= "&pg4_7.";
+ods pdf text= "&pg4_7b.";
+
+/*ods region x=0.01in y=3.7in height=2.7 width=7.5in;*/
+
+ods pdf text="&pg7_3.";
+ods pdf text="&pg7_4.";
+ods pdf text="&pg7_5.";
+ods pdf text="&pg7_6.";
+ods pdf text="&pg7_7."; 
+/*##############################################*/
+/*##   Table 8 Yearly 77301 Totals            ##*/
+/*##############################################*/
+/*ods region x=0.1in y=6.5in height=2.5in width=4in;*/
+ods graphics on / noborder;
+/* Get title to match chart!!!*/
+goptions reset=goptions device=gif hsize=6in vsize=3.5in;
+axis1 label=(a=90 f="Arial/Bold" "Total Number of IMRT Services Billed");
+proc gchart data=cbr_out.curr_hist_&current_npi.;
+vbar3d year / sumvar=total width=5 space=20 raxis=axis1;
+run;
+
+
+ods layout end;
+
+
+
+/*################*/
+/*#    PAGE 8    #*/
+/*################*/
+
+ods pdf startpage=now;
+options  orientation=portrait
+	     papersize=letter
+         rightmargin=0.5in   leftmargin=0.5in
+	     topmargin=0.5in bottommargin=0.5in
+         nodate nonumber nocenter;
+
+ods layout start;
+ods layout absolute;
+/*##############################################*/
+/*##   Final Notes with Embedded hyperlinks   ##*/
+/*##############################################*/
+ods region x=0.001in y=0.75in width=7in;
+
+ods pdf text="&pg8_1.";
+ods pdf text="&pg8_1b.";
+ods pdf text="&pg8_2.";
+ods pdf text="&pg8_3.";
+ods pdf text="&pg8_4.";
+ods pdf text="&pg8_5.";
+ods pdf text="&pg8_6.";
+ods pdf text="&pg8_7."; 
+ods pdf text="&pg8_8."; 
+ods pdf text="&pg8_9."; 
+
+ods layout end;
+
+
+ods pdf close;
+
+/* End do loop */
+%end;
+
+%mend main;
+
+%main;
